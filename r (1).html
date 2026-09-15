@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Face Scanner</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    color: #0ff;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    height: 100vh;
+  }
+  #app {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+  video, canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  canvas { pointer-events: none; }
+
+  /* HUD */
+  .hud {
+    position: absolute;
+    top: 20px; left: 20px;
+    font-size: 13px;
+    z-index: 10;
+    text-shadow: 0 0 8px #0ff;
+    letter-spacing: 2px;
+  }
+  .hud .row { margin-bottom: 6px; }
+  .hud .val { color: #0f0; }
+
+  /* User badge */
+  #userBadge {
+    position: absolute;
+    top: 20px; right: 20px;
+    z-index: 10;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    color: #0fa;
+    text-shadow: 0 0 8px #0fa;
+    text-align: right;
+    display: none;
+  }
+  #userBadge .email { color: #0f0; }
+  #logoutBtn {
+    margin-top: 6px;
+    padding: 5px 12px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: #f55;
+    background: transparent;
+    border: 1px solid #f55;
+    cursor: pointer;
+    box-shadow: 0 0 8px #f55;
+    transition: all 0.2s;
+  }
+  #logoutBtn:hover {
+    background: #f55;
+    color: #000;
+  }
+
+  /* Scan line */
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #0ff, transparent);
+    box-shadow: 0 0 20px #0ff;
+    animation: scan 3s linear infinite;
+    z-index: 5;
+    display: none;
+  }
+  @keyframes scan {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+
+  /* Corner brackets */
+  .corner {
+    position: absolute;
+    width: 40px; height: 40px;
+    border: 3px solid #0ff;
+    box-shadow: 0 0 15px #0ff;
+    z-index: 6;
+    display: none;
+  }
+  .tl { top: 15px; left: 15px; border-right: none; border-bottom: none; }
+  .tr { top: 15px; right: 15px; border-left: none; border-bottom: none; }
+  .bl { bottom: 15px; left: 15px; border-right: none; border-top: none; }
+  .br { bottom: 15px; right: 15px; border-left: none; border-top: none; }
+
+  /* Status bar */
+  .status {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    padding: 12px 30px;
+    border: 2px solid #0ff;
+    background: rgba(0, 20, 30, 0.7);
+    text-shadow: 0 0 10px #0ff;
+    box-shadow: 0 0 25px #0ff inset, 0 0 25px #0ff;
+    letter-spacing: 3px;
+    font-size: 14px;
+    transition: all 0.2s;
+    white-space: nowrap;
+    display: none;
+  }
+  .status.detected {
+    color: #0f0;
+    border-color: #0f0;
+    text-shadow: 0 0 10px #0f0;
+    box-shadow: 0 0 25px #0f0 inset, 0 0 40px #0f0;
+    animation: pulse 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes pulse {
+    from { transform: translateX(-50%) scale(1); }
+    to { transform: translateX(-50%) scale(1.05); }
+  }
+
+  /* Full-screen overlays */
+  .overlay-screen {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, #001a1a, #000);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    gap: 24px;
+    padding: 24px;
+    text-align: center;
+  }
+  .overlay-screen h1 {
+    font-size: clamp(20px, 5vw, 34px);
+    letter-spacing: 6px;
+    text-shadow: 0 0 20px #0ff;
+  }
+  .overlay-screen p {
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: #0aa;
+    max-width: 500px;
+    line-height: 1.7;
+  }
+  .overlay-screen .hint {
+    font-size: 11px;
+    color: #066;
+    letter-spacing: 1.5px;
+  }
+
+  /* Input & button */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(420px, 90vw);
+  }
+  .field label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #0aa;
+    text-align: left;
+  }
+  input[type="email"] {
+    padding: 14px 18px;
+    font-family: inherit;
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: #0ff;
+    background: rgba(0, 30, 40, 0.6);
+    border: 2px solid #0ff;
+    outline: none;
+    box-shadow: 0 0 15px rgba(0,255,255,0.3), 0 0 10px rgba(0,255,255,0.2) inset;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  input[type="email"]:focus {
+    box-shadow: 0 0 25px #0ff, 0 0 15px #0ff inset;
+  }
+  input[type="email"]::placeholder {
+    color: #066;
+    letter-spacing: 2px;
+  }
+
+  button.btn-primary {
+    padding: 16px 50px;
+    font-size: 15px;
+    font-family: inherit;
+    letter-spacing: 4px;
+    color: #0ff;
+    background: transparent;
+    border: 2px solid #0ff;
+    cursor: pointer;
+    box-shadow: 0 0 20px #0ff, 0 0 20px #0ff inset;
+    transition: all 0.3s;
+  }
+  button.btn-primary:hover {
+    background: #0ff;
+    color: #000;
+    box-shadow: 0 0 40px #0ff, 0 0 40px #0ff inset;
+  }
+  button.btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .error-msg {
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    color: #f55;
+    text-shadow: 0 0 10px #f55;
+    min-height: 18px;
+    transition: opacity 0.2s;
+    max-width: 420px;
+  }
+
+  /* Loading */
+  .loading {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    z-index: 50;
+    font-size: 14px;
+    letter-spacing: 3px;
+    color: #0ff;
+    text-shadow: 0 0 10px #0ff;
+    text-align: center;
+    padding: 20px;
+  }
+  .loading.active { display: flex; }
+  .spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(0,255,255,0.15);
+    border-top-color: #0ff;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+    box-shadow: 0 0 20px #0ff;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Shake animation for error */
+  .shake { animation: shake 0.4s; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-8px); }
+    75% { transform: translateX(8px); }
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+
+  <div class="scan-line" id="scanLine"></div>
+  <div class="corner tl" id="cTL"></div>
+  <div class="corner tr" id="cTR"></div>
+  <div class="corner bl" id="cBL"></div>
+  <div class="corner br" id="cBR"></div>
+
+  <div class="hud" id="hud" style="display:none;">
+    <div class="row">STATUS: <span class="val" id="statusText">SCANNING</span></div>
+    <div class="row">FACES:  <span class="val" id="faceCount">0</span></div>
+    <div class="row">FPS:    <span class="val" id="fps">0</span></div>
+  </div>
+
+  <div id="userBadge">
+    <div>USER: <span class="email" id="userEmail">-</span></div>
+    <button id="logoutBtn">LOGOUT</button>
+  </div>
+
+  <div class="status" id="statusBar">◉ MENUNGGU WAJAH...</div>
+
+  <!-- ============ LOGIN SCREEN ============ -->
+  <div class="overlay-screen" id="loginScreen">
+    <h1>◉ AI FACE SCANNER</h1>
+    <p>🔒 AREA TERBATAS<br>Masukkan email yang terdaftar untuk mengakses sistem pemindaian.</p>
+    <div class="field">
+      <label>EMAIL TERDAFTAR</label>
+      <input type="email" id="emailInput" placeholder="nama@email.com" autocomplete="email">
+    </div>
+    <div class="error-msg" id="loginError"></div>
+    <button class="btn-primary" id="loginBtn">LOGIN</button>
+    <p class="hint">Akses hanya untuk email yang diizinkan admin</p>
+  </div>
+
+  <!-- ============ START SCREEN ============ -->
+  <div class="overlay-screen hidden" id="startScreen">
+    <h1>◉ SIAP MEMINDAI</h1>
+    <p>Login berhasil sebagai:<br><span style="color:#0f0;font-size:14px;" id="welcomeEmail"></span></p>
+    <p style="font-size:11px;color:#0aa;">Izinkan akses kamera untuk memulai pemindaian wajah.</p>
+    <button class="btn-primary" id="startBtn">MULAI SCAN</button>
+  </div>
+
+  <!-- ============ LOADING ============ -->
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div id="loadingText">MEMUAT MODEL AI...</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script>
+/* =====================================================
+   ⚙️ KONFIGURASI — UBAH DAFTAR EMAIL YANG DIIZINKAN DI SINI
+   ===================================================== */
+const ALLOWED_EMAILS = [
+  "admin@gmail.com",
+  "user1@gmail.com",
+  "user2@gmail.com"
+  // ➕ tambahkan email lain di sini (huruf besar/kecil diabaikan)
+];
+
+/* Domain yang diizinkan (opsional). Kosongkan [] untuk nonaktif. */
+const ALLOWED_DOMAINS = [
+  // "gmail.com",
+  // "perusahaan.com"
+];
+
+const SESSION_KEY = 'ai_scanner_session';
+const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7; // 7 hari
+
+/* ===================== ELEMENTS ===================== */
+const video      = document.getElementById('video');
+const overlay    = document.getElementById('overlay');
+const ctx        = overlay.getContext('2d');
+const statusBar  = document.getElementById('statusBar');
+const statusText = document.getElementById('statusText');
+const faceCountEl= document.getElementById('faceCount');
+const fpsEl      = document.getElementById('fps');
+const hud        = document.getElementById('hud');
+const scanLine   = document.getElementById('scanLine');
+const cTL        = document.getElementById('cTL');
+const cTR        = document.getElementById('cTR');
+const cBL        = document.getElementById('cBL');
+const cBR        = document.getElementById('cBR');
+
+const loginScreen= document.getElementById('loginScreen');
+const startScreen= document.getElementById('startScreen');
+const loading    = document.getElementById('loading');
+const loadingText= document.getElementById('loadingText');
+
+const emailInput = document.getElementById('emailInput');
+const loginBtn   = document.getElementById('loginBtn');
+const loginError = document.getElementById('loginError');
+
+const startBtn   = document.getElementById('startBtn');
+const welcomeEmail = document.getElementById('welcomeEmail');
+
+const userBadge  = document.getElementById('userBadge');
+const userEmail  = document.getElementById('userEmail');
+const logoutBtn  = document.getElementById('logoutBtn');
+
+/* ===================== AUDIO ENGINE ===================== */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playTone(f1, f2, dur, type='sine', vol=0.25) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 4500;
+  osc.type = type;
+  osc.frequency.setValueAtTime(f1, now);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(1, f2), now + dur);
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(vol, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+  osc.connect(filter).connect(gain).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + dur + 0.05);
+}
+function playLoginSound()  { playTone(600, 1400, 0.18, 'sine', 0.2); setTimeout(()=>playTone(900,1800,0.15,'sine',0.15),90); }
+function playErrorSound()  { playTone(280, 120, 0.35, 'square', 0.18); }
+function playDetectSound() { playTone(220, 1400, 0.35, 'sine', 0.25); setTimeout(()=>playTone(900,1800,0.18,'triangle',0.15),60); }
+function playLostSound()   { playTone(1200, 180, 0.45, 'sawtooth', 0.14); }
+function playMultiFaceSound(n){ playTone(400+n*120, 1200+n*200, 0.28, 'square', 0.14); }
+
+let scanBeepInterval = null;
+function startScanBeep() {
+  if (scanBeepInterval) return;
+  scanBeepInterval = setInterval(() => {
+    if (!document.hidden && !lastFaceState) playTone(700, 1000, 0.07, 'sine', 0.07);
+  }, 900);
+}
+function stopScanBeep() {
+  if (scanBeepInterval) { clearInterval(scanBeepInterval); scanBeepInterval = null; }
+}
+
+/* =====================================================
+   🔐 SESSION MANAGEMENT (localStorage)
+   ===================================================== */
+function saveSession(email) {
+  const data = { email: email.toLowerCase(), time: Date.now() };
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch(e) {}
+}
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data.email || !data.time) return null;
+    if (Date.now() - data.time > SESSION_MAX_AGE_MS) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    // Validasi ulang: email masih terdaftar?
+    if (!isEmailAllowed(data.email)) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return data;
+  } catch(e) { return null; }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
+}
+
+/* =====================================================
+   ✅ VALIDASI EMAIL
+   ===================================================== */
+function isEmailAllowed(email) {
+  const e = String(email).trim().toLowerCase();
+  if (!e) return false;
+
+  // Format email dasar
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return false;
+
+  // Whitelist email spesifik
+  if (ALLOWED_EMAILS.map(x => x.toLowerCase()).includes(e)) return true;
+
+  // Domain whitelist (jika diaktifkan)
+  if (ALLOWED_DOMAINS.length > 0) {
+    const domain = e.split('@')[1];
+    if (ALLOWED_DOMAINS.map(d => d.toLowerCase()).includes(domain)) return true;
+  }
+  return false;
+}
+
+/* =====================================================
+   🎬 UI FLOW
+   ===================================================== */
+function showLogin() {
+  loginScreen.classList.remove('hidden');
+  startScreen.classList.add('hidden');
+  userBadge.style.display = 'none';
+  hud.style.display = 'none';
+  statusBar.style.display = 'none';
+  scanLine.style.display = 'none';
+  [cTL, cTR, cBL, cBR].forEach(c => c.style.display = 'none');
+  emailInput.value = '';
+  loginError.textContent = '';
+  setTimeout(() => emailInput.focus(), 100);
+}
+
+function showStart(email) {
+  loginScreen.classList.add('hidden');
+  startScreen.classList.remove('hidden');
+  welcomeEmail.textContent = email;
+  userBadge.style.display = 'block';
+  userEmail.textContent = email;
+}
+
+function showScannerUI() {
+  hud.style.display = 'block';
+  statusBar.style.display = 'block';
+  scanLine.style.display = 'block';
+  [cTL, cTR, cBL, cBR].forEach(c => c.style.display = 'block');
+}
+
+function flashError(msg) {
+  loginError.textContent = '✕ ' + msg;
+  emailInput.classList.add('shake');
+  playErrorSound();
+  setTimeout(() => emailInput.classList.remove('shake'), 400);
+}
+
+/* =====================================================
+   🔑 LOGIN HANDLER
+   ===================================================== */
+loginBtn.addEventListener('click', doLogin);
+emailInput.addEventListener('keypress', e => { if (e.key === 'Enter') doLogin(); });
+
+function doLogin() {
+  initAudio();
+  const email = emailInput.value.trim().toLowerCase();
+  loginError.textContent = '';
+
+  if (!email) { flashError('EMAIL TIDAK BOLEH KOSONG'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { flashError('FORMAT EMAIL TIDAK VALID'); return; }
+
+  if (!isEmailAllowed(email)) {
+    flashError('EMAIL TIDAK TERDAFTAR / TIDAK DIIZINKAN');
+    return;
+  }
+
+  playLoginSound();
+  saveSession(email);
+  showStart(email);
+}
+
+/* =====================================================
+   🚪 LOGOUT
+   ===================================================== */
+logoutBtn.addEventListener('click', () => {
+  if (!confirm('Yakin logout dari sistem?')) return;
+  clearSession();
+  stopScanBeep();
+  stopCamera();
+  playTone(600, 200, 0.3, 'sine', 0.2);
+  showLogin();
+});
+
+function stopCamera() {
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  running = false;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+}
+
+/* =====================================================
+   🎥 INIT SCANNER
+   ===================================================== */
+let running = false;
+let lastFaceState = false;
+let lastFaceCount = 0;
+let frameCount = 0;
+let fpsTimer = performance.now();
+
+startBtn.addEventListener('click', initScanner);
+
+async function initScanner() {
+  initAudio();
+  startScreen.classList.add('hidden');
+  loading.classList.add('active');
+  loadingText.textContent = 'MEMUAT MODEL AI...';
+
+  // Load model
+  try {
+    await faceapi.nets.tinyFaceDetector.loadFromUri(
+      'https://justadudewhohacks.github.io/face-api.js/models'
+    );
+  } catch (e) {
+    console.error(e);
+    loadingText.textContent = '✕ GAGAL MEMUAT MODEL AI\nCek koneksi internet.';
+    setTimeout(() => {
+      loading.classList.remove('active');
+      startScreen.classList.remove('hidden');
+    }, 2000);
+    return;
+  }
+
+  loadingText.textContent = 'MENGAKTIFKAN KAMERA...';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720, facingMode: 'user' },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (e) {
+    console.error(e);
+    loadingText.textContent = '✕ AKSES KAMERA DITOLAK';
+    setTimeout(() => {
+      loading.classList.remove('active');
+      startScreen.classList.remove('hidden');
+    }, 2000);
+    return;
+  }
+
+  loading.classList.remove('active');
+  showScannerUI();
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  playTone(400, 1200, 0.25, 'sine', 0.2);
+  setTimeout(() => playTone(800, 1600, 0.2, 'sine', 0.15), 100);
+  startScanBeep();
+
+  running = true;
+  detectLoop();
+}
+
+function resizeCanvas() {
+  overlay.width  = video.videoWidth  || window.innerWidth;
+  overlay.height = video.videoHeight || window.innerHeight;
+}
+
+/* =====================================================
+   👁️ DETECTION LOOP
+   ===================================================== */
+async function detectLoop() {
+  if (!running) return;
+
+  if (video.readyState === 4) {
+    const options = new faceapi.TinyFaceDetectorOptions({
+      inputSize: 416,
+      scoreThreshold: 0.5
+    });
+    const detections = await faceapi.detectAllFaces(video, options);
+    drawDetections(detections);
+    updateState(detections);
+  }
+
+  frameCount++;
+  const now = performance.now();
+  if (now - fpsTimer >= 1000) {
+    fpsEl.textContent = frameCount;
+    frameCount = 0;
+    fpsTimer = now;
+  }
+
+  requestAnimationFrame(detectLoop);
+}
+
+function updateState(detections) {
+  const count = detections.length;
+  faceCountEl.textContent = count;
+
+  if (count > 0) {
+    statusText.textContent = 'TERDETEKSI';
+    statusBar.textContent = count === 1 ? '◉ WAJAH TERDETEKSI' : `◉ ${count} WAJAH TERDETEKSI`;
+    statusBar.classList.add('detected');
+
+    if (!lastFaceState) { playDetectSound(); stopScanBeep(); }
+    else if (count !== lastFaceCount) { playMultiFaceSound(count); }
+    lastFaceState = true;
+  } else {
+    statusText.textContent = 'SCANNING';
+    statusBar.textContent = '◉ MENUNGGU WAJAH...';
+    statusBar.classList.remove('detected');
+    if (lastFaceState) { playLostSound(); startScanBeep(); }
+    lastFaceState = false;
+  }
+  lastFaceCount = count;
+}
+
+/* =====================================================
+   🎨 DRAWING
+   ===================================================== */
+function drawDetections(detections) {
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  const scaleX = overlay.width  / (video.videoWidth  || overlay.width);
+  const scaleY = overlay.height / (video.videoHeight || overlay.height);
+
+  detections.forEach((det, i) => {
+    const box = det.box;
+    const x = box.x * scaleX;
+    const y = box.y * scaleY;
+    const w = box.width  * scaleX;
+    const h = box.height * scaleY;
+    const hue = (i * 80 + performance.now() * 0.05) % 360;
+
+    ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+    ctx.shadowBlur = 20;
+    ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`;
+    ctx.lineWidth = 3;
+
+    const cl = Math.min(w, h) * 0.28;
+    ctx.beginPath(); ctx.moveTo(x, y + cl); ctx.lineTo(x, y); ctx.lineTo(x + cl, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + w - cl, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cl); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y + h - cl); ctx.lineTo(x, y + h); ctx.lineTo(x + cl, y + h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + w - cl, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cl); ctx.stroke();
+
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = `hsl(${hue}, 100%, 65%)`;
+    ctx.font = 'bold 16px Courier New';
+    ctx.fillText(`FACE #${i + 1}   ${(det.score * 100).toFixed(0)}%`, x, y - 10);
+
+    const scanY = y + (Math.sin(performance.now() * 0.003 + i) * 0.5 + 0.5) * h;
+    const grad = ctx.createLinearGradient(x, scanY - 18, x, scanY + 18);
+    grad.addColorStop(0, 'transparent');
+    grad.addColorStop(0.5, `hsla(${hue}, 100%, 60%, 0.45)`);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, scanY - 18, w, 36);
+
+    ctx.shadowBlur = 0;
+    ctx.font = '11px Courier New';
+    ctx.fillStyle = `hsla(${hue}, 100%, 75%, 0.8)`;
+    ctx.fillText(`X:${box.x.toFixed(0)} Y:${box.y.toFixed(0)}`, x, y + h + 16);
+    ctx.fillText(`W:${box.width.toFixed(0)} H:${box.height.toFixed(0)}`, x, y + h + 30);
+  });
+
+  ctx.shadowBlur = 0;
+}
+
+/* =====================================================
+   🚀 BOOT
+   ===================================================== */
+(function boot() {
+  const session = loadSession();
+  if (session) {
+    // Auto-login dari sesi sebelumnya
+    showStart(session.email);
+    // Optional: bunyi singkat (butuh interaksi user, jadi di-skip)
+  } else {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>
